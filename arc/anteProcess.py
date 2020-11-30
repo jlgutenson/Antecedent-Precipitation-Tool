@@ -1,15 +1,15 @@
 #  This software was developed by United States Army Corps of Engineers (USACE)
 #  employees in the course of their official duties.  USACE used copyrighted,
-#  open source code to develop this software, as such this software 
+#  open source code to develop this software, as such this software
 #  (per 17 USC § 101) is considered "joint work."  Pursuant to 17 USC § 105,
 #  portions of the software developed by USACE employees in the course of their
 #  official duties are not subject to copyright protection and are in the public
 #  domain.
-#  
+#
 #  USACE assumes no responsibility whatsoever for the use of this software by
 #  other parties, and makes no guarantees, expressed or implied, about its
-#  quality, reliability, or any other characteristic. 
-#  
+#  quality, reliability, or any other characteristic.
+#
 #  The software is provided "as is," without warranty of any kind, express or
 #  implied, including but not limited to the warranties of merchantability,
 #  fitness for a particular purpose, and noninfringement.  In no event shall the
@@ -17,12 +17,12 @@
 #  liability, whether in an action of contract, tort or otherwise, arising from,
 #  out of or in connection with the software or the use or other dealings in the
 #  software.
-#  
+#
 #  Public domain portions of this software can be redistributed and/or modified
 #  freely, provided that any derivative works bear some notice that they are
 #  derived from it, and any modified versions bear some notice that they have
-#  been modified. 
-#  
+#  been modified.
+#
 #  Copyrighted portions of the software are annotated within the source code.
 #  Open Source Licenses, included in the source code, apply to the applicable
 #  copyrighted portions.  Copyrighted portions of the software are not in the
@@ -48,6 +48,7 @@ import traceback
 import warnings
 import pickle
 import stat
+from operator import itemgetter
 
 # Get root folder
 MODULE_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -369,7 +370,7 @@ class Main(object):
         self.old_all_sampling_coordinates = None
         self.all_sampling_coordinate_elevations = None
         # Test USGS EPQS Servers
-        self.epqs_variant = test_usgs_epqs_servers() 
+        self.epqs_variant = test_usgs_epqs_servers()
 
     def set_yMax(self, yMax):
         self.log.Wrap('Setting yMax to ' + str(yMax))
@@ -782,7 +783,7 @@ class Main(object):
                     count_copy += 1
                 else:
                     # Get another chance to download missing data while waiting
-                    if result.data is None: 
+                    if result.data is None:
                         result.run()
                     self.stations.append(result)
                     self.recentStations.append(result)
@@ -855,7 +856,7 @@ class Main(object):
         if self.data_type == 'PRCP':
             # MAKING EARLY REQUESTS BELOW TO USE THIS DOWNTIME
             try:
-                # Querry PDSI
+                # Query PDSI
                 palmer_value, palmer_class, palmer_color, self.pdsidv_file = query_climdiv.get_pdsidv(lat=float(self.site_lat),
                                                                                                       lon=float(self.site_long),
                                                                                                       year=self.dates.observation_year,
@@ -866,7 +867,7 @@ class Main(object):
                                              lon=float(self.site_long),
                                              month=int(self.dates.observation_month),
                                              output_folder=None,
-#                                             output_folder=self.folderPath,
+                                             # output_folder=self.folderPath,
                                              watershed_analysis=self.watershed_analysis)
                 del palmer_value, palmer_class, palmer_color
                 # Query all Elevations
@@ -976,16 +977,20 @@ class Main(object):
 
     def createFinalDF(self):
         # Start to Build Stations Table (continues during iteration below)
-        station_table_column_labels = ["Weather Station Name",
+        station_table_column_labels =[["Weather Station Name",
                                        "Coordinates",
                                        "Elevation (ft)",
                                        "Distance (mi)",
                                        r"Elevation $\Delta$",
                                        r"Weighted $\Delta$",
-                                       "Normal Records",
-                                       "Rolling Records"]
-        station_table_values = [["Weather Station Name", "Coordinates", "Elevation (ft)", "Distance (mi)",
-                                 r"Elevation $\Delta$", r"Weighted $\Delta$", "Days (Normal)", "Days (Antecedent)"]]
+                                       "Days Normal",
+                                       "Days Antecedent"]]
+
+        # JLG commented this out
+        # station_table_values = [["Weather Station Name", "Coordinates", "Elevation (ft)", "Distance (mi)",
+        #                          r"Elevation $\Delta$", r"Weighted $\Delta$", "Days (Normal)", "Days (Antecedent)"]]
+
+        station_table_values = [] # added by JLG
 
         # CREATE EMPTY DATAFRAME (self.finalDF)
         self.log.Wrap("")
@@ -1018,6 +1023,7 @@ class Main(object):
                 # Note that the primary station has been found
                 if need_primary is True:
                     need_primary = False
+                    primary_station = best_station # added by JLG
                 # Get baseline null value count
                 missing_before_normal = self.finalDF[self.dates.normal_period_data_start_date:self.dates.normal_period_end_date].isnull().sum().sum()
                 missing_before_antecedent = self.finalDF[self.dates.antecedent_period_start_date:self.dates.observation_date].isnull().sum().sum()
@@ -1036,18 +1042,36 @@ class Main(object):
                 num_rows_antecedent = missing_before_antecedent-missing_after_antecedent
                 num_rows = num_rows_normal + num_rows_antecedent
                 if num_rows > 0:
-                    num_stations_used += 1
-                    # BUILD STATIONS TABLE
-                    vals = []
-                    vals.append(best_station.name)
-                    vals.append(best_station.location)
-                    vals.append(best_station.elevation)
-                    vals.append(best_station.distance)
-                    vals.append(best_station.elevDiff)
-                    vals.append(best_station.weightedDiff)
-                    vals.append(num_rows_normal)
-                    vals.append(num_rows_antecedent)
-                    station_table_values.append(vals)
+                    if best_station.name == primary_station.name:
+                        num_stations_used += 1
+                        # BUILD STATIONS TABLE
+                        vals = []
+                        vals.append(best_station.name)
+                        vals.append(best_station.location)
+                        vals.append(best_station.elevation)
+                        vals.append("{0}*".format(best_station.distance))
+                        vals.append("{0}*".format(best_station.elevDiff))
+                        vals.append("{0}*".format(best_station.weightedDiff))
+                        vals.append(num_rows_normal)
+                        vals.append(num_rows_antecedent)
+                        station_table_values.append(vals)
+                    else:
+                        num_stations_used += 1
+                        # BUILD STATIONS TABLE
+                        vals = []
+                        distance = great_circle(primary_station.location, best_station.location).miles
+                        distance = round(distance, 3)
+                        elevDiff = round((primary_station.elevation - best_station.elevation), 3)
+                        weightedDiff = round(distance*((elevDiff/1000)+0.45), 3)
+                        vals.append(best_station.name)
+                        vals.append(best_station.location)
+                        vals.append(best_station.elevation)
+                        vals.append(distance)
+                        vals.append(elevDiff)
+                        vals.append(weightedDiff)
+                        vals.append(num_rows_normal)
+                        vals.append(num_rows_antecedent)
+                        station_table_values.append(vals)
                     # SAVE RESULTS TO CSV IN OUTPUT DIRECTORY
                     if self.save_folder is not None:
                         # Generate output
@@ -1118,6 +1142,7 @@ class Main(object):
 
         if self.finalDF.isnull().sum().sum() < 1:
             self.log.Wrap('No null values within self.finalDF')
+
         else:
             if self.data_type is not 'PRCP':
                 self.log.Wrap('Since this is not for PRCP... filling null values with "0" to allow graph output...')
@@ -1207,7 +1232,7 @@ class Main(object):
         following_water_year_dates = pandas.date_range(self.dates.following_water_year_start_date, self.dates.following_water_year_end_date)
         # Get all days Upper and Lower Normal values for the current water year
         following_normal_low_series, following_normal_high_series = calc_normal_values(dates=following_water_year_dates, values=allDays)
-        
+
         # Append current year to prior year to create final output
         normal_low_series = prior_normal_low_series.append(current_normal_low_series).append(following_normal_low_series)
         normal_high_series = prior_normal_high_series.append(current_normal_high_series.append(following_normal_high_series))
@@ -1512,6 +1537,9 @@ class Main(object):
         fig = plt.figure(figsize=(17, 11))
         fig.set_facecolor('0.77')
         fig.set_dpi(140)
+        # add a footer to the station table to describe the asterisk.
+        footer_text = '*This station is considered the primary station and these values are generated in relation to the location of interest.'
+        fig.text(0.51,0.18, footer_text, fontsize=10, color="black")
         if self.data_type == 'PRCP':
         #    if num_stations_used < 14:
             ax1 = plt.subplot2grid((9, 10), (0, 0), colspan=10, rowspan=6)
@@ -1533,6 +1561,7 @@ class Main(object):
                 logo_file = os.path.join(images_folder, 'RD_1_0.png')
                 logo = plt.imread(logo_file)
             img = fig.figimage(X=logo, xo=118, yo=20)
+
         else:
             ax1 = plt.subplot2grid((9, 10), (0, 0), colspan=10, rowspan=7)
             ax2 = plt.subplot2grid((9, 10), (7, 3), colspan=7, rowspan=2)
@@ -1686,8 +1715,11 @@ class Main(object):
 
             # Plot Stations Table
             station_table_colors = [[light_grey, light_grey, light_grey, light_grey, light_grey, light_grey, light_grey, light_grey]]
-            for row in station_table_values[1:]:
+            for row in station_table_values[:]:
                 station_table_colors.append([white, white, white, white, white, white, white, white])
+
+            # combine the station table headers and values after sorting by distance from the location of interest
+            station_table_values = station_table_column_labels + station_table_values
 
             stations_table = ax4.table(cellText=station_table_values,
                                        cellColours=station_table_colors,
@@ -1833,20 +1865,30 @@ if __name__ == '__main__':
 #        self.image_source = inputList[7]
 #        self.SAVE_FOLDER = inputList[8]
 #        self.forecast_setting = inputList[9]
+    # INPUT_LIST = ['PRCP',
+    #               '38.5',
+    #               '-121.5',
+    #               2018,
+    #               10,
+    #               15,
+    #               None,
+    #               None,
+    #               SAVE_FOLDER,
+    #               False]
+    # INPUT_LIST = ['PRCP',
+    #               '62.235095',
+    #               '-159.057434',
+    #               2018,
+    #               10,
+    #               15,
+    #               None,
+    #               None,
+    #               SAVE_FOLDER,
+    #               False]
     INPUT_LIST = ['PRCP',
-                  '38.5',
-                  '-121.5',
-                  2018,
-                  10,
-                  15,
-                  None,
-                  None,
-                  SAVE_FOLDER,
-                  False]
-    INPUT_LIST = ['PRCP',
-                  '62.235095',
-                  '-159.057434',
-                  2018,
+                  '33.209205',
+                  '-87.499375',
+                  2020,
                   10,
                   15,
                   None,
